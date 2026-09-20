@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title> </title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+  body { cursor: none; isolation: isolate; }
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    filter: saturate(1.85) contrast(1.12);
+    transform: scale(1.025);
+  }
+  body::before,
+  body::after {
+    content: "";
+    position: fixed;
+    inset: -22%;
+    pointer-events: none;
+    will-change: transform, opacity, filter;
+  }
+  body::before {
+    z-index: 2;
+    background:
+      conic-gradient(from 0deg,
+        rgba(255,0,45,.0) 0deg,
+        rgba(255,0,92,.74) 34deg,
+        rgba(0,255,236,.0) 72deg,
+        rgba(255,238,0,.68) 110deg,
+        rgba(102,0,255,.08) 146deg,
+        rgba(0,255,70,.62) 184deg,
+        rgba(255,30,0,.0) 226deg,
+        rgba(0,130,255,.76) 270deg,
+        rgba(255,0,255,.1) 312deg,
+        rgba(255,255,255,.68) 346deg,
+        rgba(255,0,45,.0) 360deg);
+    mix-blend-mode: color-dodge;
+    filter: blur(28px) saturate(3);
+    opacity: .63;
+    animation: spin .92s linear infinite, bloom .42s ease-in-out infinite alternate;
+  }
+  body::after {
+    z-index: 3;
+    background:
+      repeating-radial-gradient(circle at 50% 50%,
+        rgba(255,255,255,.18) 0 1px,
+        rgba(0,0,0,.34) 2px 3px,
+        rgba(255,255,255,0) 4px 9px),
+      repeating-linear-gradient(90deg,
+        rgba(255,0,0,.12) 0 2px,
+        rgba(0,0,0,0) 2px 5px,
+        rgba(0,255,255,.11) 5px 7px,
+        rgba(0,0,0,0) 7px 12px);
+    mix-blend-mode: difference;
+    filter: blur(.45px) saturate(2.4) contrast(1.32);
+    opacity: .47;
+    animation: counterSpin 1.17s linear infinite, tear .31s steps(2,end) infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg) scale(1.14); } }
+  @keyframes counterSpin { to { transform: rotate(-360deg) scale(1.06); } }
+  @keyframes bloom {
+    from { opacity: .28; filter: blur(42px) saturate(4) contrast(1.3); }
+    to   { opacity: .82; filter: blur(14px) saturate(7) contrast(1.7); }
+  }
+  .invert {
+    position: fixed;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+    background: #fff;
+    mix-blend-mode: difference;
+    will-change: opacity;
+    animation: invert .095s steps(1, end) infinite;
+  }
+  @keyframes invert {
+    0% { opacity: 0; }
+    50% { opacity: 1; }
+  }
+  @keyframes tear {
+    0%   { transform: rotate(-360deg) translate3d(-1.2%, 0, 0) scaleX(1.04); }
+    50%  { transform: rotate(-360deg) translate3d(1.8%, .7%, 0) scaleX(.97); }
+    100% { transform: rotate(-360deg) translate3d(-.6%, -1.1%, 0) scaleX(1.06); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    canvas { filter: saturate(1.2) contrast(1.02); transform: none; }
+    body::before { animation-duration: 9s, 3s; opacity: .2; }
+    body::after { animation-duration: 11s, 2.6s; opacity: .13; }
+    .invert { animation: none; opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<canvas id="trip" role="img" aria-label="Abstract temporal color and motion field"></canvas>
+<div class="invert" aria-hidden="true"></div>
+<script>
+const canvas = document.getElementById('trip');
+const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const vertex = `
+attribute vec2 p;
+void main() { gl_Position = vec4(p, 0.0, 1.0); }
+`;
+
+const fragment = `
+precision highp float;
+uniform vec2 R;
+uniform float T;
+uniform float M;
+
+#define PI 3.14159265359
+#define TAU 6.28318530718
+
+mat2 rot(float a) {
+  float s = sin(a), c = cos(a);
+  return mat2(c, -s, s, c);
+}
+
+float hash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0)), f.x), f.y);
+}
+
+float fbm(vec2 p) {
+  float v = 0.0;
+  float a = 0.52;
+  for (int i = 0; i < 4; i++) {
+    v += a * noise(p);
+    p = rot(2.03) * p * 2.07 + 13.7;
+    a *= 0.52;
+  }
+  return v;
+}
+
+vec3 palette(float x) {
+  return 0.5 + 0.5 * cos(TAU * (vec3(0.00, 0.34, 0.67) + x));
+}
+
+vec3 field(vec2 uv) {
+  float t = T * M;
+  uv *= rot(0.16 * sin(t * 0.19) + t * 0.047);
+
+  float r = length(uv);
+  float a = atan(uv.y, uv.x);
+  a += 0.78 * sin(r * 13.0 - t * 1.31) + 0.38 * sin(t * 0.43);
+  a += 0.24 * sin(a * 7.0 + t * 1.7);
+
+  float wedge = 7.0;
+  float cell = TAU / wedge;
+  a = abs(mod(a + PI * 4.0, cell) - cell * 0.5);
+
+  vec2 q = vec2(a * 3.8, log(r + 0.026) * 3.15 - t * 1.08);
+  float n1 = fbm(q * 2.35 + vec2(sin(t * 0.37), cos(t * 0.29)));
+  float n2 = fbm(q.yx * 4.2 - vec2(t * 0.31, t * 0.22) + n1 * 1.8);
+
+  float tunnel = sin((r * 19.0 - t * 3.55 + n1 * 5.1) * PI);
+  float petals = sin(a * 18.0 - t * 2.15 + n2 * 7.0);
+  float veins = sin((q.x * 2.7 + q.y * 5.8 + n1 * 4.0) * PI);
+  float molten = fbm(q * 7.0 + vec2(n2 * 2.0, -t * 0.8));
+
+  float flash = 0.58 + 0.42 * sin(t * TAU * 7.8 + sin(t * 2.7) * 1.8);
+  float snap = pow(max(0.0, sin(t * 4.9 + sin(t * 1.9) * 2.0)), 17.0);
+
+  vec3 c = palette(0.05 + n1 * 0.72 + r * 0.52 + t * 0.10 + tunnel * 0.11);
+  c += palette(0.53 + n2 * 0.88 - t * 0.075) * pow(abs(tunnel), 5.0) * 1.35;
+  c += vec3(1.0, 0.01, 0.66) * pow(max(0.0, petals), 9.0) * 1.30;
+  c += vec3(0.10, 1.0, 0.48) * pow(max(0.0, -petals), 12.0) * 0.72;
+  c += vec3(0.98, 0.88, 1.0) * pow(abs(veins), 18.0) * 0.85;
+  c += palette(0.84 + molten + t * 0.13) * pow(molten, 2.6) * 2.0;
+
+  c *= 0.34 + 1.95 * r;
+  c *= flash;
+  c += vec3(0.86, 0.0, 1.0) * snap * 1.55;
+  c += vec3(0.72, 0.95, 1.0) * pow(max(0.0, 1.0 - r * 5.7), 3.2) * 1.25;
+
+  float vignette = smoothstep(1.85, 0.10, r);
+  c *= vignette;
+  return max(c, 0.0);
+}
+
+void main() {
+  vec2 uv = (2.0 * gl_FragCoord.xy - R) / min(R.x, R.y);
+  float t = T * M;
+
+  float gate = step(0.77, hash(vec2(floor(t * 22.0), floor(uv.y * 34.0))));
+  uv.x += gate * (hash(vec2(floor(uv.y * 51.0), floor(t * 29.0))) - 0.5) * 0.21;
+
+  float ca = (0.008 + 0.006 * sin(t * 5.6)) * M;
+  vec3 c = field(uv);
+  c.r = field(uv + vec2(ca, ca * 0.35)).r;
+  c.b = field(uv - vec2(ca * 1.25, ca * 0.42)).b;
+
+  float scan = 0.86 + 0.14 * sin(gl_FragCoord.y * 1.72 + t * 190.0);
+  float grain = hash(gl_FragCoord.xy + floor(t * 70.0));
+  c *= scan;
+  c += (grain - 0.5) * 0.075;
+
+  c = pow(max(c, 0.0), vec3(0.82));
+  gl_FragColor = vec4(c, 1.0);
+}
+`;
+
+function compile(type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
+  return shader;
+}
+
+const program = gl.createProgram();
+gl.attachShader(program, compile(gl.VERTEX_SHADER, vertex));
+gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragment));
+gl.linkProgram(program);
+if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+gl.useProgram(program);
+
+const buffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const p = gl.getAttribLocation(program, 'p');
+gl.enableVertexAttribArray(p);
+gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
+
+const R = gl.getUniformLocation(program, 'R');
+const T = gl.getUniformLocation(program, 'T');
+const M = gl.getUniformLocation(program, 'M');
+gl.uniform1f(M, reduced ? 0.16 : 1.0);
+
+function resize() {
+  const maxPixels = 1400000;
+  let scale = Math.min(devicePixelRatio || 1, 1.35);
+  if (innerWidth * innerHeight * scale * scale > maxPixels) scale = Math.sqrt(maxPixels / (innerWidth * innerHeight));
+  const w = Math.max(1, Math.round(innerWidth * scale));
+  const h = Math.max(1, Math.round(innerHeight * scale));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+  gl.uniform2f(R, w, h);
+}
+
+addEventListener('resize', resize, { passive: true });
+resize();
+
+let paused = false;
+addEventListener('keydown', event => {
+  if (event.code === 'Space') {
+    event.preventDefault();
+    paused = !paused;
+  }
+});
+addEventListener('blur', () => paused = true);
+addEventListener('focus', () => paused = false);
+
+let start = performance.now();
+function frame(now) {
+  if (!paused) {
+    gl.uniform1f(T, (now - start) * 0.001);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
+
